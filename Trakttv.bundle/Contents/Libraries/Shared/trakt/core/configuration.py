@@ -1,7 +1,7 @@
 from trakt.core.context_collection import ContextCollection
 
 DEFAULT_HTTP_RETRY = False
-DEFAULT_HTTP_MAX_RETRIES = 3
+DEFAULT_HTTP_MAX_RETRIES = 5
 DEFAULT_HTTP_RETRY_SLEEP = 5
 DEFAULT_HTTP_TIMEOUT = (6.05, 24)
 

@@ -3,6 +3,8 @@ from trakt.core.configuration import DEFAULT_HTTP_RETRY, DEFAULT_HTTP_MAX_RETRIE
 from trakt.core.context_stack import ContextStack
 from trakt.core.helpers import synchronized
 from trakt.core.request import TraktRequest
+from requests.packages.urllib3.exceptions import ReadTimeoutError
+from requests.exceptions import SSLError
 
 from requests.adapters import HTTPAdapter, DEFAULT_POOLBLOCK
 from threading import Lock
@@ -89,6 +91,7 @@ class HttpClient(object):
         max_retries = self.client.configuration.get('http.max_retries', DEFAULT_HTTP_MAX_RETRIES)
         retry_sleep = self.client.configuration.get('http.retry_sleep', DEFAULT_HTTP_RETRY_SLEEP)
         timeout = self.client.configuration.get('http.timeout', DEFAULT_HTTP_TIMEOUT)
+        force_retry = False
 
         # Send request
         response = None
@@ -109,12 +112,22 @@ class HttpClient(object):
                 log.warn('Encountered socket.gaierror (code: 8)')
 
                 response = self.rebuild().send(request, timeout=timeout)
-
-            # Retry requests on errors >= 500 (when enabled)
-            if not retry or response.status_code < 500:
+            except SSLError as e:
+                log.warn('SSLError, force retry')
+                force_retry = True
+            except ReadTimeoutError:
+                log.warn('ReadTimeoutError, force retry')
+                force_retry = True
+            
+            status_code = 1000
+            if response is not None:
+                status_code = response.status_code
+                               
+            # Retry requests on errors >= 500 (when enabled) or on SSLError and ReadTimeoutError
+            if (not retry and not force_retry) or status_code < 500:
                 break
 
-            log.warn('Continue retry since status is %s, waiting %s seconds', response.status_code, retry_sleep)
+            log.warn('Continue retry since status is %s, waiting %s seconds', status_code, retry_sleep)
             time.sleep(retry_sleep)
 
         return response
