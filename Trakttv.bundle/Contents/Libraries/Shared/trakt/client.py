@@ -17,7 +17,7 @@ class TraktClient(Emitter):
         if adapter_kwargs is None:
             adapter_kwargs = {}
 
-        adapter_kwargs.setdefault('max_retries', 10)
+        adapter_kwargs.setdefault('max_retries', 3)
 
         # Construct
         self.configuration = ConfigurationManager()

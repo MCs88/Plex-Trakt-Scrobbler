@@ -5,6 +5,7 @@ from trakt.core.helpers import synchronized
 from trakt.core.request import TraktRequest
 from requests.packages.urllib3.exceptions import ReadTimeoutError
 from requests.exceptions import SSLError
+from requests.exceptions import ConnectionError
 
 from requests.adapters import HTTPAdapter, DEFAULT_POOLBLOCK
 from threading import Lock
@@ -117,6 +118,9 @@ class HttpClient(object):
                 force_retry = True
             except ReadTimeoutError:
                 log.warn('ReadTimeoutError, force retry')
+                force_retry = True
+            except ConnectionError:
+                log.warn('ConnectionError, force retry')
                 force_retry = True
             
             status_code = 1000
