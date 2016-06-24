@@ -120,7 +120,13 @@ class ActionManager(Manager):
 
                 log.debug('Action %r sent, moved action to history', action.event)
             except Exception, ex:
-                log.warn('Unable to process action %r - %s', action.event, ex, exc_info=True)
+                log.warn('Unable to process action %%r - %s' % ex.message, action.event, exc_info=True, extra={
+                    'event': {
+                        'module': __name__,
+                        'name': 'run.process_exception',
+                        'key': ex.message
+                    }
+                })
             finally:
                 time.sleep(5)
 
@@ -158,20 +164,23 @@ class ActionManager(Manager):
         if action.event != 'scrobble/stop':
             return False
 
-        if action.progress < 80:
+        # Retrieve scrobble duplication period
+        duplication_period = Preferences.get('scrobble.duplication_period')
+
+        if duplication_period is None:
             return False
 
-        results = ActionHistory.select().where(
-            ActionHistory.account == action.account,
-            ActionHistory.rating_key == action.rating_key,
-
-            ActionHistory.performed == 'scrobble',
-
-            ActionHistory.sent_at > action.queued_at - timedelta(hours=1)
+        # Check for duplicate scrobbles in `duplication_period`
+        scrobbled = ActionHistory.has_scrobbled(
+            action.account, action.rating_key,
+            after=action.queued_at - timedelta(minutes=duplication_period)
         )
 
-        if results.count() > 0:
-            log.info('Ignoring duplicate %r action, scrobble already performed in the last hour', action.event)
+        if scrobbled:
+            log.info(
+                'Ignoring duplicate %r action, scrobble already performed in the last %d minutes',
+                action.event, duplication_period
+            )
             return True
 
         return False

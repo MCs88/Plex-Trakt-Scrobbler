@@ -1,3 +1,5 @@
+from plugin.core.environment import translate as _
+
 class Enum(object):
     @classmethod
     def parse(cls, value):
@@ -62,15 +64,32 @@ class SyncData(Enum):
         if cls.__titles__ is None:
             # Build titles map
             cls.__titles__ = {
-                cls.All:           'All',
-                cls.Collection:    'Collection',
-                cls.Playback:      'Playback',
-                cls.Ratings:       'Ratings',
-                cls.Watched:       'Watched',
-                cls.Watchlist:     'Watchlist'
+                cls.All:           _('All'),
+                cls.Collection:    _('Collection'),
+                cls.Playback:      _('Playback'),
+                cls.Ratings:       _('Ratings'),
+                cls.Watched:       _('Watched'),
+                cls.Watchlist:     _('Watchlist')
             }
 
         return cls.__titles__.get(value)
+
+
+class ScrobbleDuplicationPeriod(Enum):
+    H1      = 1 * 60
+    H3      = 3 * 60
+    H6      = 6 * 60
+    H12     = 12 * 60
+
+    D1      = 1 * 24 * 60
+    D7      = 7 * 24 * 60
+
+
+class SyncIdleDelay(Enum):
+    M15     = 15
+    M30     = 30
+
+    H1      = 1 * 60
 
 
 class SyncInterval(Enum):
@@ -101,11 +120,11 @@ class SyncMedia(Enum):
         if cls.__titles__ is None:
             # Build titles map
             cls.__titles__ = {
-                cls.All:        'All',
-                cls.Movies:     'Movies',
-                cls.Shows:      'Shows',
-                cls.Seasons:    'Seasons',
-                cls.Episodes:   'Episodes',
+                cls.All:        _('All'),
+                cls.Movies:     _('Movies'),
+                cls.Shows:      _('Shows'),
+                cls.Seasons:    _('Seasons'),
+                cls.Episodes:   _('Episodes'),
             }
 
         return cls.__titles__.get(value)
@@ -124,10 +143,10 @@ class SyncMode(Enum):
         if cls.__titles__ is None:
             # Build titles map
             cls.__titles__ = {
-                cls.Full:       'Full',
-                cls.Pull:       'Pull',
-                cls.Push:       'Push',
-                cls.FastPull:   'Quick Pull'
+                cls.Full:       _('Full'),
+                cls.Pull:       _('Pull'),
+                cls.Push:       _('Push'),
+                cls.FastPull:   _('Quick Pull')
             }
 
         return cls.__titles__.get(value)

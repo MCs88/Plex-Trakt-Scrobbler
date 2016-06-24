@@ -111,6 +111,7 @@ class Clean(Migration):
                 'core/configuration.py',
                 'core/environment.py',
                 'core/eventing.py',
+                'core/localization.py',
                 'core/logging_handler.py',
                 'core/logging_reporter.py',
                 'core/method_manager.py',
@@ -118,6 +119,7 @@ class Clean(Migration):
                 'core/model.py',
                 'core/network.py',
                 'core/numeric.py',
+                'core/plugin.py',
                 'core/task.py',
                 'core/trakt.py',
                 'core/trakt_objects.py',
@@ -145,9 +147,13 @@ class Clean(Migration):
         (
             'delete_file', [
                 # plugin
+                'Shared/plugin/api/account.py',
                 'Shared/plugin/core/event.py',
                 'Shared/plugin/core/io.py',
                 'Shared/plugin/core/jsonw.py',
+                'Shared/plugin/core/libraries/main.py',
+                'Shared/plugin/core/libraries/tests/pyopenssl_.py',
+                'Shared/plugin/core/session_status.py',
                 'Shared/plugin/models/core/exceptions.py',
                 'Shared/plugin/modules/base.py',
                 'Shared/plugin/modules/manager.py',

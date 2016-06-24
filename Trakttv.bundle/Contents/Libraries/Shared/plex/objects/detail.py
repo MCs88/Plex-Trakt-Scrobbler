@@ -17,14 +17,20 @@ class Detail(Container):
     allow_camera_upload = Property('allowCameraUpload', (int, bool))
     allow_channel_access = Property('allowChannelAccess', (int, bool))
     allow_media_deletion = Property('allowMediaDeletion', (int, bool))
+    allow_sharing = Property('allowSharing', (int, bool))
     allow_sync = Property('allowSync', (int, bool))
 
     background_processing = Property('backgroundProcessing', (int, bool))
     companion_proxy = Property('companionProxy', (int, bool))
+    event_stream = Property('eventStream', (int, bool))
     hub_search = Property('hubSearch', (int, bool))
+    plugin_host = Property('pluginHost', (int, bool))
+    read_only_libraries = Property('readOnlyLibraries', (int, bool))
+    updater = Property('updater', (int, bool))
 
     certificate = Property(type=(int, bool))
     multiuser = Property(type=(int, bool))
+    owner_features = Property('ownerFeatures')
     sync = Property(type=(int, bool))
 
     start_state = Property('startState')

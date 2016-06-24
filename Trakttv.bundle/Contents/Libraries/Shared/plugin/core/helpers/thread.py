@@ -2,6 +2,7 @@ from threading import Thread
 import logging
 import os
 
+from plugin.core.helpers.variable import resolve
 from plugin.core.importer import import_modules
 
 log = logging.getLogger(__name__)
@@ -46,6 +47,10 @@ def module_start():
     import_modules(os.path.join(plugin_dir, 'api'), exclude=[
         '__init__.py',
         'core'
+    ])
+
+    import_modules(os.path.join(plugin_dir, 'api', 'account'), exclude=[
+        '__init__.py'
     ])
 
     import_modules(os.path.join(plugin_dir, 'api', 'session'), exclude=[
@@ -120,3 +125,14 @@ def spawn(func, *args, **kwargs):
 
     log.info('Spawned thread with name "%s"', name)
     return thread
+
+
+def synchronized(lock):
+    def outer(func):
+        def inner(*args, **kwargs):
+            with resolve(lock, args[0]):
+                return func(*args, **kwargs)
+
+        return inner
+
+    return outer
