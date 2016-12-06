@@ -5,6 +5,7 @@ from plugin.sync.core.exceptions import SyncAbort
 from plugin.sync.core.task.artifacts import SyncArtifacts
 from plugin.sync.core.task.configuration import SyncConfiguration
 from plugin.sync.core.task.map import SyncMap
+from plugin.sync.core.task.pending import SyncPending
 from plugin.sync.core.task.progress import SyncProgress
 from plugin.sync.core.task.profiler import SyncProfiler
 from plugin.sync.core.task.state import SyncState
@@ -49,6 +50,7 @@ class SyncTask(object):
         self.artifacts = SyncArtifacts(self)
         self.configuration = SyncConfiguration(self)
         self.map = SyncMap(self)
+        self.pending = SyncPending(self)
         self.progress = SyncProgress(self)
         self.profiler = SyncProfiler(self)
 
@@ -76,6 +78,8 @@ class SyncTask(object):
         self.modes = dict(self._construct_modules(modes, 'mode'))
 
     def load(self):
+        log.debug('Task Arguments: %r', self.kwargs)
+
         # Load task configuration
         self.configuration.load(self.account)
 
@@ -83,8 +87,8 @@ class SyncTask(object):
         if self.data is None:
             self.data = self.get_enabled_data(self.configuration, self.mode)
 
-        log.debug('Sync Data: %r', self.data)
-        log.debug('Sync Media: %r', self.media)
+        log.debug('Task Data: %r', self.data)
+        log.debug('Task Media: %r', self.media)
 
         if self.data is None:
             raise ValueError('No collections enabled for sync')
@@ -124,7 +128,7 @@ class SyncTask(object):
         for exc_info in self.exceptions:
             try:
                 self.store_exception(self.result, exc_info)
-            except Exception, ex:
+            except Exception as ex:
                 log.warn('Unable to store exception: %s', str(ex), exc_info=True)
 
         # Flush caches to archives

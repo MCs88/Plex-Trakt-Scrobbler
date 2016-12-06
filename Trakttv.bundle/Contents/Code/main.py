@@ -4,7 +4,6 @@ from core.logger import Logger
 from core.update_checker import UpdateChecker
 
 from plugin.core.constants import ACTIVITY_MODE, PLUGIN_VERSION
-from plugin.core.cache import CacheManager
 from plugin.core.helpers.thread import module_start
 from plugin.core.logger import LOG_HANDLER, LoggerManager
 from plugin.managers.account import TraktAccountManager
@@ -16,6 +15,7 @@ from plugin.scrobbler.core.session_prefix import SessionPrefix
 from plex import Plex
 from plex_activity import Activity
 from plex_metadata import Metadata
+from six.moves.urllib.parse import quote_plus, urlsplit, urlunsplit
 from requests.packages.urllib3.util import Retry
 from trakt import Trakt
 import os
@@ -33,12 +33,15 @@ class Main(object):
     def __init__(self):
         Header.show(self)
 
-        LoggerManager.refresh()
+        # Initial configuration update
+        self.on_configuration_changed()
 
+        # Initialize clients
         self.init_trakt()
         self.init_plex()
         self.init()
 
+        # Initialize modules
         ModuleManager.initialize()
 
     def init(self):
@@ -60,13 +63,19 @@ class Main(object):
             # Generate identifier
             Dict['plex.client.identifier'] = uuid.uuid4()
 
+        # Retrieve current client identifier
+        client_id = Dict['plex.client.identifier']
+
+        if isinstance(client_id, uuid.UUID):
+            client_id = str(client_id)
+
         # plex.py
         Plex.configuration.defaults.authentication(
             os.environ.get('PLEXTOKEN')
         )
 
         Plex.configuration.defaults.client(
-            identifier=Dict['plex.client.identifier'],
+            identifier=client_id,
 
             product='trakt (for Plex)',
             version=PLUGIN_VERSION
@@ -80,10 +89,6 @@ class Main(object):
 
         # plex.metadata.py
         Metadata.configure(
-            cache=CacheManager.get(
-                'plex.metadata',
-                serializer='pickle:///?protocol=2'
-            ),
             client=Plex.client
         )
 
@@ -148,7 +153,7 @@ class Main(object):
 
     def start(self):
         # Construct main thread
-        spawn(self.run, thread_name='main')
+        spawn(self.run, daemon=True, thread_name='main')
 
     def run(self):
         # Check for authentication token
@@ -202,6 +207,73 @@ class Main(object):
 
         SessionPrefix.increment()
 
-    @staticmethod
-    def on_configuration_changed():
+    @classmethod
+    def on_configuration_changed(cls):
+        # Update proxies (for requests)
+        cls.update_proxies()
+
+        # Refresh loggers
         LoggerManager.refresh()
+
+    @staticmethod
+    def update_proxies():
+        # Retrieve proxy host
+        host = Prefs['proxy_host']
+
+        if not host:
+            if not Trakt.http.proxies and not os.environ.get('HTTP_PROXY') and not os.environ.get('HTTPS_PROXY'):
+                return
+
+            # Update trakt client
+            Trakt.http.proxies = {}
+
+            # Update environment variables
+            if 'HTTP_PROXY' in os.environ:
+                del os.environ['HTTP_PROXY']
+
+            if 'HTTPS_PROXY' in os.environ:
+                del os.environ['HTTPS_PROXY']
+
+            log.info('HTTP Proxy has been disabled')
+            return
+
+        # Parse URL
+        host_parsed = urlsplit(host)
+
+        # Expand components
+        scheme, netloc, path, query, fragment = host_parsed
+
+        if not scheme:
+            scheme = 'http'
+
+        # Retrieve proxy credentials
+        username = Prefs['proxy_username']
+        password = Prefs['proxy_password']
+
+        # Build URL
+        if username and password and '@' not in netloc:
+            netloc = '%s:%s@%s' % (
+                quote_plus(username),
+                quote_plus(password),
+                netloc
+            )
+
+        url = urlunsplit((scheme, netloc, path, query, fragment))
+
+        # Update trakt client
+        Trakt.http.proxies = {
+            'http': url,
+            'https': url
+        }
+
+        # Update environment variables
+        os.environ.update({
+            'HTTP_PROXY': url,
+            'HTTPS_PROXY': url
+        })
+
+        # Display message in log file
+        if not host_parsed.username and not host_parsed.password:
+            log.info('HTTP Proxy has been enabled (host: %r)', host)
+        else:
+            log.info('HTTP Proxy has been enabled (host: <sensitive>)')

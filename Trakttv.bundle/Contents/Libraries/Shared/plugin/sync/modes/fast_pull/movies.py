@@ -1,23 +1,22 @@
-from plugin.core.constants import GUID_SERVICES
-from plugin.sync.core.enums import SyncMode, SyncData, SyncMedia
-from plugin.sync.modes.core.base import Mode, log_unsupported, mark_unsupported
+from plugin.sync.core.enums import SyncData, SyncMedia, SyncMode
+from plugin.sync.core.guid import GuidParser
+from plugin.sync.modes.core.base import log_unsupported, mark_unsupported
+from plugin.sync.modes.fast_pull.base import Base
 
 from plex_database.models import MetadataItem
-from trakt_sync.cache.main import Cache
 import elapsed
 import logging
 
 log = logging.getLogger(__name__)
 
 
-class Movies(Mode):
+class Movies(Base):
     data = [
         SyncData.Collection,
         SyncData.Playback,
         SyncData.Ratings,
         SyncData.Watched
     ]
-    mode = SyncMode.FastPull
 
     def __init__(self, task):
         super(Movies, self).__init__(task)
@@ -51,7 +50,8 @@ class Movies(Mode):
         # Fetch movies with account settings
         self.p_movies = self.plex.library.movies.mapped(
             self.p_sections, [
-                MetadataItem.library_section
+                MetadataItem.library_section,
+                MetadataItem.added_at
             ],
             account=self.current.account.plex.key,
             parse_guid=True
@@ -63,63 +63,58 @@ class Movies(Mode):
     @elapsed.clock
     def run(self):
         # Process movies
-        for mo_id, guid, p_item in self.p_movies:
+        for mo_id, guid, p_movie in self.p_movies:
             # Increment one step
             self.current.progress.group(Movies).step()
 
-            # Ensure `guid` is available
-            if not guid or guid.service not in GUID_SERVICES:
+            # Parse guid
+            match = GuidParser.parse(guid)
+
+            if not match.supported:
                 mark_unsupported(self.p_unsupported, mo_id, guid)
                 continue
 
-            key = (guid.service, guid.id)
+            if not match.found:
+                log.info('Unable to find identifier for: %s/%s (rating_key: %r)', guid.service, guid.id, mo_id)
+                continue
+
+            key = (match.guid.service, match.guid.id)
 
             # Try retrieve `pk` for `key`
             pk = self.trakt.table('movies').get(key)
 
             # Store in item map
-            self.current.map.add(p_item.get('library_section'), mo_id, [key, pk])
+            self.current.map.add(p_movie.get('library_section'), mo_id, [key, pk])
 
             if pk is None:
                 # No `pk` found
                 continue
 
-            # Iterate over changed data
-            for key, result in self.trakt.changes:
-                media, data = key[0:2]
+            # Run pull handlers if the item has been added recently
+            if self.should_pull(mo_id, p_movie.get('added_at')):
+                log.info('Movie %r has been added recently, running pull sync instead', mo_id)
 
-                if media != SyncMedia.Movies:
-                    # Ignore changes that aren't for movies
-                    continue
-
-                if data == SyncData.Watchlist:
-                    # Ignore watchlist data
-                    continue
-
-                if not self.is_data_enabled(data):
-                    # Data type has been disabled
-                    continue
-
-                data_name = Cache.Data.get(data)
-
-                if data_name not in result.changes:
-                    # No changes for collection
-                    continue
-
-                for action, items in result.changes[data_name].items():
-                    t_item = items.get(pk)
-
-                    if t_item is None:
-                        # No item found in changes
-                        continue
+                # Execute handlers
+                for data in self.get_data(SyncMedia.Movies):
+                    t_movie = self.trakt[(SyncMedia.Movies, data)].get(pk)
 
                     self.execute_handlers(
-                        SyncMedia.Movies, data,
+                        SyncMode.Pull, SyncMedia.Movies, data,
+                        key=mo_id,
+
+                        p_item=p_movie,
+                        t_item=t_movie
+                    )
+            else:
+                # Execute handlers for changed data
+                for data, action, t_movie in self.iter_changes(SyncMedia.Movies, pk):
+                    self.execute_handlers(
+                        self.mode, SyncMedia.Movies, data,
                         action=action,
                         key=mo_id,
 
-                        p_item=p_item,
-                        t_item=t_item
+                        p_item=p_movie,
+                        t_item=t_movie
                     )
 
             # Task checkpoint
@@ -129,4 +124,4 @@ class Movies(Mode):
         self.current.progress.group(Movies).stop()
 
         # Log details
-        log_unsupported(log, 'Found %d unsupported movie(s)\n%s', self.p_unsupported)
+        log_unsupported(log, 'Found %d unsupported movie(s)', self.p_unsupported)

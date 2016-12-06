@@ -1,4 +1,4 @@
-from core.helpers import pad_title
+from core.helpers import catch_errors, pad_title
 from interface.m_messages import Status as MessageStatus, ListMessages
 from interface.m_sync import Accounts, AccountsMenu, ControlsMenu
 
@@ -9,12 +9,14 @@ import locale
 
 
 @handler(PLUGIN_PREFIX, PLUGIN_NAME, thumb=PLUGIN_ICON, art=PLUGIN_ART)
-def MainMenu():
+@catch_errors
+def MainMenu(*args, **kwargs):
     oc = ObjectContainer(no_cache=True)
 
     #
     # Messages
     #
+
     m_count, m_type = MessageStatus(viewed=False)
 
     if m_count > 0:
@@ -38,6 +40,7 @@ def MainMenu():
     #
     # About
     #
+
     oc.add(DirectoryObject(
         key=Callback(AboutMenu),
         title=_("About"),
@@ -53,13 +56,14 @@ def MainMenu():
 
 
 @route(PLUGIN_PREFIX + '/about')
-def AboutMenu():
+@catch_errors
+def AboutMenu(*args, **kwargs):
     oc = ObjectContainer(
         title2=_("About")
     )
 
     oc.add(DirectoryObject(
-        key=Callback(ListMessages, viewed=None),
+        key=Callback(ListMessages, days=None, viewed=None),
         title=pad_title(_("Messages"))
     ))
 

@@ -1,6 +1,9 @@
 from plugin.core.constants import PLUGIN_VERSION_BASE, PLUGIN_VERSION_BRANCH
 from plugin.core.helpers.error import ErrorHasher
-from plugin.core.logger.filters import DuplicateReportFilter, ExceptionReportFilter, RequestsReportFilter, TraktReportFilter
+from plugin.core.helpers.variable import merge
+from plugin.core.libraries.helpers.system import SystemHelper
+from plugin.core.logger.filters import DuplicateReportFilter, ExceptionReportFilter, FrameworkFilter,\
+    RequestsReportFilter, TraktReportFilter
 from plugin.core.logger.filters.events import EventsReportFilter
 
 from raven import Client
@@ -10,7 +13,7 @@ from raven.utils.stacks import iter_stack_frames, label_from_frame
 import datetime
 import logging
 import os
-import platform
+import raven
 import re
 import sys
 
@@ -38,22 +41,16 @@ PARAMS = {
 
     # Plugin + System details
     'release': VERSION,
-    'tags': {
-        # Plugin
+    'tags': merge(SystemHelper.attributes(), {
         'plugin.version': VERSION,
-        'plugin.branch': PLUGIN_VERSION_BRANCH,
-
-        # System
-        'os.system': platform.system(),
-        'os.release': platform.release(),
-        'os.version': platform.version()
-    }
+        'plugin.branch': PLUGIN_VERSION_BRANCH
+    })
 }
 
 
 class ErrorReporter(Client):
     server = 'sentry.skipthe.net'
-    key = '51814d6692f142ad88393d90a606643a:02374118037e4908a0dc627fcba3e613'
+    key = '240c00f6a02542f8900d8a6a1aba365a:7432061e2ac54ed0aabe4ec3fe3ea0d9'
     project = 1
 
     def __init__(self, dsn=None, raise_send_errors=False, **options):
@@ -78,6 +75,23 @@ class ErrorReporter(Client):
 
         # Update client DSN
         self.set_dsn(dsn)
+
+    def send_remote(self, url, data, headers=None):
+        if headers is None:
+            headers = {}
+
+        # Update user agent
+        headers['User-Agent'] = 'raven-python/%s tfp/%s-%s' % (
+            # Raven
+            raven.VERSION,
+
+            # Trakt.tv (for Plex)
+            VERSION,
+            PLUGIN_VERSION_BRANCH
+        )
+
+        # Send event
+        super(ErrorReporter, self).send_remote(url, data, headers)
 
 
 class ErrorReporterHandler(SentryHandler):
@@ -131,7 +145,7 @@ class ErrorReporterHandler(SentryHandler):
         # http://docs.python.org/library/sys.html#sys.exc_info
         try:
             exc_info = self._exc_info(record)
-        except Exception, ex:
+        except Exception as ex:
             log.info('Unable to retrieve exception info - %s', ex, exc_info=True)
             exc_info = None
 
@@ -286,7 +300,7 @@ class ErrorReporterHandler(SentryHandler):
         # Try retrieve culprit from traceback
         try:
             culprit = cls._traceback_culprit(tb)
-        except Exception, ex:
+        except Exception as ex:
             log.info('Unable to retrieve traceback culprit - %s', ex, exc_info=True)
             culprit = None
 
@@ -299,7 +313,7 @@ class ErrorReporterHandler(SentryHandler):
             # Build module name from path
             try:
                 module = cls._module_name(file_path)
-            except Exception, ex:
+            except Exception as ex:
                 log.info('Unable to retrieve module name - %s', ex, exc_info=True)
                 module = None
 
@@ -352,6 +366,8 @@ RAVEN = ErrorReporter(**PARAMS)
 ERROR_REPORTER_HANDLER = ErrorReporterHandler(RAVEN, level=logging.WARNING)
 
 ERROR_REPORTER_HANDLER.filters = [
+    FrameworkFilter('filter'),
+
     DuplicateReportFilter(),
     EventsReportFilter(),
     ExceptionReportFilter(),

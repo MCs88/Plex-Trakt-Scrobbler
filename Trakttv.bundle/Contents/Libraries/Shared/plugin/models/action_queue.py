@@ -2,7 +2,7 @@ from plugin.models.core import db
 from plugin.models.account import Account
 from plugin.models.session import Session
 
-from playhouse.apsw_ext import *
+from exception_wrappers.libraries.playhouse.apsw_ext import *
 
 
 class ActionQueue(Model):
@@ -15,6 +15,8 @@ class ActionQueue(Model):
     session = ForeignKeyField(Session, 'action_queue', null=True)
 
     progress = FloatField(null=True)
+
+    part = IntegerField(default=1)
     rating_key = IntegerField(null=True)
 
     event = CharField()

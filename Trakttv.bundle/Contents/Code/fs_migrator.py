@@ -82,7 +82,7 @@ class Migration(object):
         try:
             os.remove(path)
             return True
-        except Exception, ex:
+        except Exception as ex:
             Log.Warn('Unable to remove file %r - %s', path, ex, exc_info=True)
 
         return False
@@ -95,7 +95,7 @@ class Migration(object):
         try:
             shutil.rmtree(path)
             return True
-        except Exception, ex:
+        except Exception as ex:
             Log.Warn('Unable to remove directory %r - %s', path, ex, exc_info=True)
 
         return False
@@ -290,6 +290,7 @@ class Clean(Migration):
                 'Shared/trakt/interfaces/sync/base.py',
                 'Shared/trakt/media_mapper.py',
                 'Shared/trakt/objects.py',
+                'Shared/trakt/objects/list.py',
                 'Shared/trakt/request.py',
 
                 # tzlocal

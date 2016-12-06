@@ -290,6 +290,7 @@ class SyncArtifacts(object):
             return False
 
         # Check for duplicate scrobbles in `duplication_period`
+        # TODO check `part` attribute
         scrobbled = ActionHistory.has_scrobbled(
             self.task.account, p_key,
             after=datetime.utcnow() - timedelta(minutes=duplication_period)
@@ -317,11 +318,11 @@ class SyncArtifacts(object):
             log.info('Invalid "title" or "year" attribute on %s', identifier)
             return False
 
-        if not guid:
-            log.warn('Invalid GUID attribute on %s', identifier)
+        if not guid or not guid.valid:
+            log.warn('Invalid GUID attribute on %s (guid: %r)', identifier, guid)
             return False
 
-        if not guid or guid.service not in GUID_SERVICES:
+        if guid.service not in GUID_SERVICES:
             log.warn('GUID service %r is not supported on %s', guid.service if guid else None, identifier)
             return False
 
@@ -334,7 +335,7 @@ class SyncArtifacts(object):
                 try:
                     # Convert `datetime` object to string
                     value = value.strftime('%Y-%m-%dT%H:%M:%S') + '.000-00:00'
-                except Exception, ex:
+                except Exception:
                     log.warn('Unable to convert %r to string', value)
                     return False
 

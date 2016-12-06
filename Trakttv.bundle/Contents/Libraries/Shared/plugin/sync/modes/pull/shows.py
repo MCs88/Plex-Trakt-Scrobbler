@@ -1,5 +1,5 @@
-from plugin.core.constants import GUID_SERVICES
 from plugin.sync.core.enums import SyncData, SyncMedia
+from plugin.sync.core.guid import GuidMatch, GuidParser
 from plugin.sync.modes.core.base import log_unsupported, mark_unsupported
 from plugin.sync.modes.pull.base import Base
 
@@ -18,14 +18,35 @@ class Shows(Base):
         SyncData.Watched
     ]
 
-    @elapsed.clock
-    def run(self):
-        # Retrieve show sections
-        p_sections, p_sections_map = self.sections('show')
+    def __init__(self, task):
+        super(Shows, self).__init__(task)
 
+        # Sections
+        self.p_sections = None
+        self.p_sections_map = None
+
+        # Shows
+        self.p_shows = None
+        self.p_shows_unsupported = None
+
+        # Seasons
+        self.p_seasons = None
+
+        # Episodes
+        self.p_episodes = None
+
+        self.p_pending = None
+
+    @elapsed.clock
+    def construct(self):
+        # Retrieve show sections
+        self.p_sections, self.p_sections_map = self.sections('show')
+
+    @elapsed.clock
+    def start(self):
         # Fetch episodes with account settings
-        p_shows, p_seasons, p_episodes = self.plex.library.episodes.mapped(
-            p_sections, ([
+        self.p_shows, self.p_seasons, self.p_episodes = self.plex.library.episodes.mapped(
+            self.p_sections, ([
                 MetadataItem.library_section
             ], [], []),
             account=self.current.account.plex.key,
@@ -35,7 +56,7 @@ class Shows(Base):
         # TODO process seasons
 
         # Calculate total number of episodes
-        pending = {}
+        self.p_pending = {}
 
         for data in self.get_data(SyncMedia.Episodes):
             t_episodes = [
@@ -45,22 +66,42 @@ class Shows(Base):
                 for ep in t_season.episodes.iterkeys()
             ]
 
-            if data not in pending:
-                pending[data] = {}
+            if data not in self.p_pending:
+                self.p_pending[data] = {}
 
             for key in t_episodes:
-                pending[data][key] = False
+                self.p_pending[data][key] = False
 
-        # Task started
-        unsupported_shows = {}
+        # Reset state
+        self.p_shows_unsupported = {}
 
-        # Process shows
-        for sh_id, guid, p_show in p_shows:
-            if not guid or guid.service not in GUID_SERVICES:
-                mark_unsupported(unsupported_shows, sh_id, guid)
+    #
+    # Run
+    #
+
+    @elapsed.clock
+    def run(self):
+        self.run_shows()
+        self.run_episodes()
+
+        # Log details
+        log_unsupported(log, 'Found %d unsupported show(s)', self.p_shows_unsupported)
+        log.debug('Pending: %r', self.p_pending)
+
+    def run_shows(self):
+        for sh_id, guid, p_show in self.p_shows:
+            # Parse guid
+            match = GuidParser.parse(guid)
+
+            if not match.supported:
+                mark_unsupported(self.p_shows_unsupported, sh_id, guid)
                 continue
 
-            key = (guid.service, guid.id)
+            if not match.found:
+                log.info('Unable to find identifier for: %s/%s (rating_key: %r)', guid.service, guid.id, sh_id)
+                continue
+
+            key = (match.guid.service, match.guid.id)
 
             # Try retrieve `pk` for `key`
             pk = self.trakt.table('shows').get(key)
@@ -72,71 +113,68 @@ class Shows(Base):
                 # No `pk` found
                 continue
 
-            # Execute data handlers
+            # Execute handlers
             for data in self.get_data(SyncMedia.Shows):
                 t_show = self.trakt[(SyncMedia.Shows, data)].get(pk)
 
                 # Execute show handlers
                 self.execute_handlers(
-                    SyncMedia.Shows, data,
+                    self.mode, SyncMedia.Shows, data,
                     key=sh_id,
 
                     p_item=p_show,
                     t_item=t_show
                 )
 
-        # Process episodes
-        for ids, guid, (season_num, episode_num), p_show, p_season, p_episode in p_episodes:
-            if not guid or guid.service not in GUID_SERVICES:
-                mark_unsupported(unsupported_shows, ids['show'], guid)
+    def run_episodes(self):
+        for ids, guid, (season_num, episode_num), p_show, p_season, p_episode in self.p_episodes:
+            # Process `p_guid` (map + validate)
+            match = GuidParser.parse(guid, (season_num, episode_num))
+
+            if not match.supported:
+                mark_unsupported(self.p_shows_unsupported, ids['show'], guid)
                 continue
 
-            key = (guid.service, guid.id)
-
-            # Try retrieve `pk` for `key`
-            pk = self.trakt.table('shows').get(key)
-
-            if pk is None:
-                # No `pk` found
+            if not match.found:
+                log.info('Unable to find identifier for: %s/%s (rating_key: %r)', guid.service, guid.id, ids['show'])
                 continue
 
-            if not ids.get('episode'):
-                # Missing `episode` rating key
-                continue
-
-            for data in self.get_data(SyncMedia.Episodes):
-                t_show = self.trakt[(SyncMedia.Episodes, data)].get(pk)
-
-                if t_show is None:
-                    # Unable to find matching show in trakt data
-                    continue
-
-                t_season = t_show.seasons.get(season_num)
-
-                if t_season is None:
-                    # Unable to find matching season in `t_show`
-                    continue
-
-                t_episode = t_season.episodes.get(episode_num)
-
-                if t_episode is None:
-                    # Unable to find matching episode in `t_season`
-                    continue
-
-                self.execute_handlers(
-                    SyncMedia.Episodes, data,
-                    key=ids['episode'],
-
-                    p_item=p_episode,
-                    t_item=t_episode
-                )
-
-                # Increment one step
-                self.step(pending, data, (pk, season_num, episode_num))
+            # Process episode
+            self.run_episode(ids, match, p_show, p_episode)
 
             # Task checkpoint
             self.checkpoint()
 
-        # Log details
-        log_unsupported(log, 'Found %d unsupported show(s)\n%s', unsupported_shows)
-        log.debug('Pending: %r', pending)
+    def run_episode(self, ids, match, p_show, p_episode):
+        key = (match.guid.service, match.guid.id)
+
+        # Determine media type
+        if match.media == GuidMatch.Media.Movie:
+            c_media = 'movies'
+            s_media = SyncMedia.Movies
+        elif match.media == GuidMatch.Media.Episode:
+            c_media = 'shows'
+            s_media = SyncMedia.Episodes
+        else:
+            raise ValueError('Unknown match media type: %r' % (match.media,))
+
+        # Try retrieve `pk` for `key`
+        pk = self.trakt.table(c_media).get(key)
+
+        if pk is None:
+            return
+
+        if not ids.get('episode'):
+            return
+
+        # Execute handlers
+        for data in self.get_data(s_media):
+            t_item = self.trakt[(s_media, data)].get(pk)
+
+            if t_item is None:
+                continue
+
+            self.run_episode_action(
+                self.mode, data, ids, match,
+                p_show, p_episode, t_item
+            )

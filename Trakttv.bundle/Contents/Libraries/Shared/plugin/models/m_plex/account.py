@@ -3,7 +3,7 @@ from plugin.models.core import db
 from plugin.models.account import Account
 
 from datetime import datetime, timedelta
-from playhouse.apsw_ext import *
+from exception_wrappers.libraries.playhouse.apsw_ext import *
 from plex import Plex
 from urllib import urlencode
 from urlparse import urlparse, parse_qsl
@@ -69,9 +69,13 @@ class PlexAccount(Model):
         if basic_credential.token_server is None:
             raise AccountAuthenticationError("Plex account is missing the server token")
 
-        log.debug('Using basic authorization for %r', self)
+        # Handle anonymous authentication
+        if basic_credential.token_server == 'anonymous':
+            log.debug('Using anonymous authorization for %r', self)
+            return Plex.configuration.authentication(token=None)
 
-        # Return authorization context
+        # Configure client
+        log.debug('Using basic authorization for %r', self)
         return Plex.configuration.authentication(basic_credential.token_server)
 
     def refresh(self, force=False, save=True):
@@ -96,7 +100,7 @@ class PlexAccount(Model):
         if not self.refresh_details(basic):
             return False
 
-        if not basic.refresh():
+        if not basic.refresh(force=True):
             return False
 
         # Store changes in database
@@ -111,13 +115,15 @@ class PlexAccount(Model):
         if basic.token_plex == 'anonymous':
             return self.refresh_anonymous()
 
+        log.info('Refreshing plex account: %r', self)
+
         # Fetch account details
         response = requests.get('https://plex.tv/users/account', headers={
             'X-Plex-Token': basic.token_plex
         })
 
         if not (200 <= response.status_code < 300):
-            # Invalid response
+            log.warn('Unable to retrieve account details from plex.tv (status_code: %s)', response.status_code)
             return False
 
         user = ElementTree.fromstring(response.content)
@@ -136,7 +142,7 @@ class PlexAccount(Model):
             # Retrieve user id from plex.tv details
             try:
                 user_id = int(user.attrib.get('id'))
-            except Exception, ex:
+            except Exception as ex:
                 log.warn('Unable to cast user id to integer: %s', ex, exc_info=True)
                 user_id = None
 
@@ -146,7 +152,7 @@ class PlexAccount(Model):
         return True
 
     def refresh_anonymous(self):
-        log.debug('Refreshing anonymous plex account')
+        log.info('Refreshing plex account: %r (anonymous)', self)
 
         self.username = 'administrator'
 
@@ -167,7 +173,7 @@ class PlexAccount(Model):
         if self.title is None:
             return True
 
-        if basic.token_server is None:
+        if not basic.token_server:
             return True
 
         return False

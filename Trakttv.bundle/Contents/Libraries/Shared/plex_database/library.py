@@ -15,11 +15,11 @@ try:
     import pytz
 
     TZ_LOCAL = get_localzone()
-except ImportError:
+except Exception:
     pytz = None
     TZ_LOCAL = None
 
-    log.info('Unable to import "tzlocal" + "pytz": datetime objects will be returned without "tzinfo"')
+    log.warn('Unable to retrieve system timezone, datetime objects will be returned in local time', exc_info=True)
 
 MODEL_KEYS = {
     MediaItem:              'media',
@@ -72,8 +72,14 @@ class LibraryBase(object):
         while True:
             try:
                 row = result.iterate()
-            except UnicodeDecodeError, ex:
-                log.warn('Unable to retrieve row: %s', ex, exc_info=True)
+            except UnicodeDecodeError as ex:
+                log.warn('Unable to retrieve row: %s', ex, exc_info=True, extra={
+                    'event': {
+                        'module': __name__,
+                        'name': '_tuple_iterator.iterate.unicode_decode_error',
+                        'key': '%s:%s' % (ex.encoding, ex.reason)
+                    }
+                })
                 continue
 
             yield row
@@ -148,7 +154,7 @@ class LibraryBase(object):
             try:
                 # Parse field
                 value = cls._parse_field(field, value)
-            except Exception, ex:
+            except Exception as ex:
                 log.error('Unable to parse value %r as field %r', value, field)
                 raise ex
 
@@ -322,7 +328,7 @@ class MovieLibrary(LibraryBase):
                 # Parse `guid` (if enabled, and not already parsed)
                 if parse_guid:
                     if id not in guids:
-                        guids[id] = Guid.parse(guid)
+                        guids[id] = Guid.parse(guid, strict=True)
 
                     guid = guids[id]
 
@@ -537,7 +543,7 @@ class EpisodeLibrary(LibraryBase):
         episodes = self.mapped_episodes(sections, ep_fields, account)
 
         # Prime `Matcher` cache
-        if self.matcher.cache is not None and hasattr(self.matcher.cache, 'prime'):
+        if self.matcher is not None and self.matcher.cache is not None and hasattr(self.matcher.cache, 'prime'):
             context = self.matcher.cache.prime(force=True)
         else:
             context = PrimeContext()
@@ -550,7 +556,7 @@ class EpisodeLibrary(LibraryBase):
                 # Parse `guid` (if enabled, and not already parsed)
                 if parse_guid:
                     if id not in guids:
-                        guids[sh_id] = Guid.parse(guid)
+                        guids[sh_id] = Guid.parse(guid, strict=True)
 
                     guid = guids[sh_id]
 
@@ -575,18 +581,21 @@ class EpisodeLibrary(LibraryBase):
                 # Parse `guid` (if enabled, and not already parsed)
                 if parse_guid:
                     if id not in guids:
-                        guids[sh_id] = Guid.parse(guid)
+                        guids[sh_id] = Guid.parse(guid, strict=True)
 
                     guid = guids[sh_id]
 
-                # Use primed `Matcher` buffer
-                with context:
-                    # Run `Matcher` on episode
-                    season_num, episode_nums = self.matcher.process_episode(
-                        ep_id,
-                        (season['index'], ep_index),
-                        episode['part']['file']
-                    )
+                # Retrieve episode identifier
+                season_num, episode_nums = season['index'], [ep_index]
+
+                # Run `Matcher` on episode (if available)
+                if self.matcher is not None:
+                    with context:
+                        season_num, episode_nums = self.matcher.process_episode(
+                            ep_id,
+                            (season['index'], ep_index),
+                            episode['part']['file']
+                        )
 
                 for episode_num in episode_nums:
                     ids = {

@@ -4,10 +4,13 @@ from plex.objects.directory import Directory
 
 
 class Section(Directory):
+    id = Property
     uuid = Property
+    path = Property('key')
 
-    filters = Property(type=bool)
-    refreshing = Property(type=bool)
+    auto_photo_tags = Property('enableAutoPhotoTags', type=(int, bool))
+    filters = Property(type=(int, bool))
+    refreshing = Property(type=(int, bool))
 
     agent = Property
     scanner = Property

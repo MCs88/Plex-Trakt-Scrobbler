@@ -4,9 +4,10 @@ from plugin.models import ActionHistory, ActionQueue
 from plugin.preferences import Preferences
 
 from datetime import datetime, timedelta
+from exception_wrappers.libraries import apsw
+from exception_wrappers.exceptions import DisabledError
 from threading import Thread
 from trakt import Trakt
-import apsw
 import json
 import logging
 import peewee
@@ -61,6 +62,8 @@ class ActionManager(Manager):
                 session=session,
 
                 progress=session.progress,
+
+                part=session.part,
                 rating_key=session.rating_key,
 
                 event=event,
@@ -69,7 +72,9 @@ class ActionManager(Manager):
                 queued_at=datetime.utcnow()
             )
             log.debug('Queued %r event for %r', event, session)
-        except (apsw.ConstraintError, peewee.IntegrityError), ex:
+        except (apsw.ConstraintError, peewee.IntegrityError) as ex:
+            log.info('Event %r has already been queued for session %r: %s', event, session.session_key, ex, exc_info=True)
+        except Exception as ex:
             log.warn('Unable to queue event %r for %r: %s', event, session, ex, exc_info=True)
 
         # Ensure process thread is started
@@ -106,7 +111,9 @@ class ActionManager(Manager):
             except ActionQueue.DoesNotExist:
                 time.sleep(5)
                 continue
-            except Exception, ex:
+            except DisabledError:
+                break
+            except Exception as ex:
                 log.warn('Unable to retrieve action from queue - %s', ex, exc_info=True)
                 time.sleep(5)
                 continue
@@ -119,7 +126,7 @@ class ActionManager(Manager):
                 cls.resolve(action, performed)
 
                 log.debug('Action %r sent, moved action to history', action.event)
-            except Exception, ex:
+            except Exception as ex:
                 log.warn('Unable to process action %%r - %s' % ex.message, action.event, exc_info=True, extra={
                     'event': {
                         'module': __name__,
@@ -145,7 +152,7 @@ class ActionManager(Manager):
 
         try:
             result = cls.send(action, Trakt[interface][method], request)
-        except Exception, ex:
+        except Exception as ex:
             log.error('Unable to send action %r: %r', action.event, ex, exc_info=True)
             return None
 
@@ -173,6 +180,7 @@ class ActionManager(Manager):
         # Check for duplicate scrobbles in `duplication_period`
         scrobbled = ActionHistory.has_scrobbled(
             action.account, action.rating_key,
+            part=action.part,
             after=action.queued_at - timedelta(minutes=duplication_period)
         )
 
@@ -215,6 +223,7 @@ class ActionManager(Manager):
             account=action.account_id,
             session=action.session_id,
 
+            part=action.part,
             rating_key=action.rating_key,
 
             event=action.event,
